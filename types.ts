@@ -7,6 +7,7 @@ export interface GenerationState {
 }
 
 export type ModelType = 'male' | 'female' | 'unisex';
+export type StudioTier = 'free' | 'pro';
 
 export interface FittingConfig {
   modelType: ModelType;
