@@ -6,16 +6,13 @@ import { generateModelFit, editGeneratedImage } from './services/geminiService';
 import { FittingConfig, GenerationState } from './types';
 
 declare global {
-  /**
-   * AIStudio interface for API key management.
-   */
   interface AIStudio {
     hasSelectedApiKey: () => Promise<boolean>;
     openSelectKey: () => Promise<void>;
   }
-
   interface Window {
-    aistudio: AIStudio;
+    // Fixed: Added readonly modifier to match the likely existing definition and resolve modifier conflict
+    readonly aistudio: AIStudio;
   }
 }
 
@@ -41,24 +38,32 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const checkKey = async () => {
-      // Check for aistudio and the method to ensure availability
-      if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
-        const hasKey = await window.aistudio.hasSelectedApiKey();
-        setHasPersonalKey(hasKey);
+      try {
+        if (window.aistudio) {
+          const hasKey = await window.aistudio.hasSelectedApiKey();
+          setHasPersonalKey(hasKey);
+        }
+      } catch (e) {
+        console.warn("AIStudio bridge not yet available");
       }
     };
     checkKey();
   }, []);
 
   const handleSelectKey = async () => {
-    if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
-      await window.aistudio.openSelectKey();
-      /**
-       * Race condition mitigation: assume success after calling openSelectKey 
-       * as per the "API Key Selection" instructions.
-       */
-      setHasPersonalKey(true);
-      setState(prev => ({ ...prev, error: null }));
+    try {
+      if (window.aistudio) {
+        await window.aistudio.openSelectKey();
+        // As per guidelines, assume success immediately to prevent race conditions
+        setHasPersonalKey(true);
+        setState(prev => ({ ...prev, error: null }));
+      } else {
+        console.error("AIStudio is not defined on window");
+        setState(prev => ({ ...prev, error: "API Key Selection is not supported in this environment." }));
+      }
+    } catch (err) {
+      console.error("Error opening key selection:", err);
+      setState(prev => ({ ...prev, error: "Failed to open API key selection dialog." }));
     }
   };
 
@@ -71,15 +76,11 @@ const App: React.FC = () => {
       setState({ isGenerating: false, isEditing: false, error: null, resultUrl: result });
       setIsImageLoading(true);
     } catch (err: any) {
-      /**
-       * Reset key selection state and prompt user to select again if requested entity not found
-       * as specified in the "API Key Selection" guidelines.
-       */
       if (err.message?.includes("Requested entity was not found.")) {
         setHasPersonalKey(false);
-        setState({ isGenerating: false, isEditing: false, error: "API Key session expired. Please select your key again.", resultUrl: null });
+        setState({ isGenerating: false, isEditing: false, error: "API Key expired or project not found. Please re-select your key.", resultUrl: null });
       } else {
-        setState({ isGenerating: false, isEditing: false, error: err.message, resultUrl: null });
+        setState({ isGenerating: false, isEditing: false, error: err.message === "QUOTA_EXCEEDED" ? "QUOTA_EXCEEDED" : err.message, resultUrl: null });
       }
     }
   };
@@ -97,7 +98,7 @@ const App: React.FC = () => {
       if (err.message?.includes("Requested entity was not found.")) {
         setHasPersonalKey(false);
       }
-      setState(prev => ({ ...prev, isEditing: false, error: err.message }));
+      setState(prev => ({ ...prev, isEditing: false, error: err.message === "QUOTA_EXCEEDED" ? "QUOTA_EXCEEDED" : err.message }));
     }
   };
 
@@ -135,7 +136,7 @@ const App: React.FC = () => {
             {!hasPersonalKey && (
               <button 
                 onClick={handleSelectKey}
-                className="bg-zimbabalooba-teal/5 hover:bg-zimbabalooba-teal/10 text-zimbabalooba-teal text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-full border border-zimbabalooba-teal/10 transition-colors flex items-center"
+                className="bg-zimbabalooba-teal/5 hover:bg-zimbabalooba-teal/10 text-zimbabalooba-teal text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-full border border-zimbabalooba-teal/10 transition-all flex items-center hover:scale-105"
               >
                 <i className="fa-solid fa-key mr-2"></i> Use Own API Key
               </button>
@@ -207,7 +208,7 @@ const App: React.FC = () => {
               )}
 
               {state.error === "QUOTA_EXCEEDED" ? (
-                <div className="bg-white p-10 rounded-[2rem] shadow-2xl max-w-md text-center border-t-4 border-zimbabalooba-orange">
+                <div className="bg-white p-10 rounded-[2rem] shadow-2xl max-w-md text-center border-t-4 border-zimbabalooba-orange z-30">
                   <div className="w-16 h-16 bg-orange-50 text-zimbabalooba-orange rounded-2xl flex items-center justify-center mx-auto mb-6">
                     <i className="fa-solid fa-hourglass-half text-2xl animate-pulse"></i>
                   </div>
@@ -230,11 +231,11 @@ const App: React.FC = () => {
                     </button>
                   </div>
                   <p className="mt-4 text-[9px] text-gray-300">
-                    Get a key at <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="underline">ai.google.dev/billing</a>
+                    Get a key at <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="underline">ai.google.dev/gemini-api/docs/billing</a>
                   </p>
                 </div>
               ) : state.error && (
-                <div className="bg-white p-10 rounded-[2rem] shadow-2xl max-w-md text-center border-t-4 border-rose-400">
+                <div className="bg-white p-10 rounded-[2rem] shadow-2xl max-w-md text-center border-t-4 border-rose-400 z-30">
                   <div className="w-16 h-16 bg-rose-50 text-rose-400 rounded-2xl flex items-center justify-center mx-auto mb-6">
                     <i className="fa-solid fa-circle-exclamation text-2xl"></i>
                   </div>
@@ -289,7 +290,7 @@ const App: React.FC = () => {
                         disabled={!editPrompt.trim()}
                         className={`px-8 py-4 rounded-xl font-brand uppercase tracking-[0.2em] text-xs transition-all
                           ${editPrompt.trim() 
-                            ? 'bg-zimbabalooba-orange text-white' 
+                            ? 'bg-zimbabalooba-orange text-white shadow-lg shadow-zimbabalooba-orange/20' 
                             : 'bg-gray-100 text-gray-300'}
                         `}
                       >
