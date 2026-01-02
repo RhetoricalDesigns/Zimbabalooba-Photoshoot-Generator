@@ -21,7 +21,6 @@ export const generateModelFit = async (
     customInstructions?: string
   }
 ): Promise<string> => {
-  // Always create a new instance to pick up the latest API key from the environment
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
   const { mimeType, data } = getBase64Parts(base64Image);
 
@@ -43,10 +42,17 @@ export const generateModelFit = async (
       }
     });
 
-    const imagePart = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
-    if (imagePart && imagePart.inlineData) {
-      return `data:image/png;base64,${imagePart.inlineData.data}`;
+    // Safer access to candidate parts to satisfy TypeScript
+    const candidates = response.candidates;
+    if (candidates && candidates.length > 0) {
+      const parts = candidates[0].content?.parts;
+      const imagePart = parts?.find(p => p.inlineData);
+      
+      if (imagePart && imagePart.inlineData) {
+        return `data:image/png;base64,${imagePart.inlineData.data}`;
+      }
     }
+    
     throw new Error("The AI model finished processing but didn't provide an image result.");
   } catch (error: any) {
     console.error("Gemini API Error:", error);
@@ -78,10 +84,16 @@ export const editGeneratedImage = async (
       }
     });
 
-    const imagePart = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
-    if (imagePart && imagePart.inlineData) {
-      return `data:image/png;base64,${imagePart.inlineData.data}`;
+    const candidates = response.candidates;
+    if (candidates && candidates.length > 0) {
+      const parts = candidates[0].content?.parts;
+      const imagePart = parts?.find(p => p.inlineData);
+      
+      if (imagePart && imagePart.inlineData) {
+        return `data:image/png;base64,${imagePart.inlineData.data}`;
+      }
     }
+
     throw new Error("The AI model finished processing but didn't provide an image result.");
   } catch (error: any) {
     console.error("Gemini Edit Error:", error);
