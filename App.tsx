@@ -1,14 +1,29 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import ImageUploader from './components/ImageUploader';
 import FittingControls from './components/FittingControls';
 import { generateModelFit, editGeneratedImage } from './services/geminiService';
 import { FittingConfig, GenerationState } from './types';
 
+declare global {
+  /**
+   * AIStudio interface for API key management.
+   */
+  interface AIStudio {
+    hasSelectedApiKey: () => Promise<boolean>;
+    openSelectKey: () => Promise<void>;
+  }
+
+  interface Window {
+    aistudio: AIStudio;
+  }
+}
+
 const App: React.FC = () => {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [isImageLoading, setIsImageLoading] = useState(false);
   const [editPrompt, setEditPrompt] = useState('');
+  const [hasPersonalKey, setHasPersonalKey] = useState(false);
   const [fittingConfig, setFittingConfig] = useState<FittingConfig>({
     modelType: 'female',
     modelRace: 'Diverse',
@@ -24,16 +39,48 @@ const App: React.FC = () => {
     resultUrl: null,
   });
 
+  useEffect(() => {
+    const checkKey = async () => {
+      // Check for aistudio and the method to ensure availability
+      if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
+        const hasKey = await window.aistudio.hasSelectedApiKey();
+        setHasPersonalKey(hasKey);
+      }
+    };
+    checkKey();
+  }, []);
+
+  const handleSelectKey = async () => {
+    if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
+      await window.aistudio.openSelectKey();
+      /**
+       * Race condition mitigation: assume success after calling openSelectKey 
+       * as per the "API Key Selection" instructions.
+       */
+      setHasPersonalKey(true);
+      setState(prev => ({ ...prev, error: null }));
+    }
+  };
+
   const handleGenerate = async () => {
     if (!selectedImage) return;
     setState({ isGenerating: true, isEditing: false, error: null, resultUrl: null });
     setIsImageLoading(false);
     try {
-      const result = await generateModelFit(selectedImage, fittingConfig);
+      const result = await generateModelFit(selectedImage, fittingConfig, hasPersonalKey);
       setState({ isGenerating: false, isEditing: false, error: null, resultUrl: result });
       setIsImageLoading(true);
     } catch (err: any) {
-      setState({ isGenerating: false, isEditing: false, error: err.message, resultUrl: null });
+      /**
+       * Reset key selection state and prompt user to select again if requested entity not found
+       * as specified in the "API Key Selection" guidelines.
+       */
+      if (err.message?.includes("Requested entity was not found.")) {
+        setHasPersonalKey(false);
+        setState({ isGenerating: false, isEditing: false, error: "API Key session expired. Please select your key again.", resultUrl: null });
+      } else {
+        setState({ isGenerating: false, isEditing: false, error: err.message, resultUrl: null });
+      }
     }
   };
 
@@ -42,33 +89,30 @@ const App: React.FC = () => {
     setState(prev => ({ ...prev, isEditing: true, error: null }));
     setIsImageLoading(false);
     try {
-      const result = await editGeneratedImage(state.resultUrl, editPrompt);
+      const result = await editGeneratedImage(state.resultUrl, editPrompt, hasPersonalKey);
       setState({ isGenerating: false, isEditing: false, error: null, resultUrl: result });
       setIsImageLoading(true);
       setEditPrompt('');
     } catch (err: any) {
+      if (err.message?.includes("Requested entity was not found.")) {
+        setHasPersonalKey(false);
+      }
       setState(prev => ({ ...prev, isEditing: false, error: err.message }));
     }
   };
 
   const handleImageLoad = () => setIsImageLoading(false);
-  const handleImageError = () => {
-    setIsImageLoading(false);
-    setState(prev => ({ ...prev, error: "Display failed. Image data may be restricted or corrupted." }));
-  };
-
   const reset = () => {
     setState({ isGenerating: false, isEditing: false, error: null, resultUrl: null });
     setSelectedImage(null);
     setEditPrompt('');
-    setIsImageLoading(false);
   };
 
   const downloadImage = () => {
     if (!state.resultUrl) return;
     const link = document.createElement('a');
     link.href = state.resultUrl;
-    link.download = `zimbabalooba-shot-${Date.now()}.png`;
+    link.download = `zimbabalooba-${Date.now()}.png`;
     link.click();
   };
 
@@ -86,11 +130,20 @@ const App: React.FC = () => {
               </p>
             </div>
           </div>
-          <div className="hidden lg:flex items-center">
+          
+          <div className="flex items-center space-x-3">
+            {!hasPersonalKey && (
+              <button 
+                onClick={handleSelectKey}
+                className="bg-zimbabalooba-teal/5 hover:bg-zimbabalooba-teal/10 text-zimbabalooba-teal text-[10px] font-bold uppercase tracking-widest px-4 py-2 rounded-full border border-zimbabalooba-teal/10 transition-colors flex items-center"
+              >
+                <i className="fa-solid fa-key mr-2"></i> Use Own API Key
+              </button>
+            )}
             <div className="bg-zimbabalooba-lightBg px-4 py-2 rounded-full border border-zimbabalooba-teal/10">
               <p className="text-[11px] text-zimbabalooba-teal font-bold uppercase tracking-wider">
-                <i className="fa-solid fa-bolt mr-2 text-zimbabalooba-orange"></i>
-                Powered by Gemini 2.5
+                <i className={`fa-solid fa-bolt mr-2 ${hasPersonalKey ? 'text-green-500' : 'text-zimbabalooba-orange'}`}></i>
+                {hasPersonalKey ? 'Pro Mode Active' : 'Free Mode'}
               </p>
             </div>
           </div>
@@ -142,7 +195,7 @@ const App: React.FC = () => {
 
             <div className="flex-1 relative flex flex-col items-center justify-center p-4 md:p-8 overflow-hidden">
               {!state.resultUrl && !state.isGenerating && !state.isEditing && !state.error && (
-                <div className="text-center max-w-sm animate-in fade-in zoom-in duration-700">
+                <div className="text-center max-w-sm">
                   <div className="w-24 h-24 bg-white rounded-[2rem] shadow-2xl flex items-center justify-center mx-auto mb-8 border border-zimbabalooba-orange/20 rotate-6 hover:rotate-0 transition-transform duration-500">
                     <i className="fa-solid fa-wand-magic-sparkles text-zimbabalooba-orange text-4xl"></i>
                   </div>
@@ -150,6 +203,44 @@ const App: React.FC = () => {
                   <p className="text-gray-400 text-xs leading-relaxed font-medium px-6">
                     Upload your garments on the left to transform them into high-end editorial photography.
                   </p>
+                </div>
+              )}
+
+              {state.error === "QUOTA_EXCEEDED" ? (
+                <div className="bg-white p-10 rounded-[2rem] shadow-2xl max-w-md text-center border-t-4 border-zimbabalooba-orange">
+                  <div className="w-16 h-16 bg-orange-50 text-zimbabalooba-orange rounded-2xl flex items-center justify-center mx-auto mb-6">
+                    <i className="fa-solid fa-hourglass-half text-2xl animate-pulse"></i>
+                  </div>
+                  <h4 className="text-gray-800 font-bold mb-2">Free Quota Reached</h4>
+                  <p className="text-gray-500 text-[11px] leading-relaxed mb-6">
+                    The shared free tier quota is currently exhausted. You can wait a minute, or use your own API key for unlimited generations.
+                  </p>
+                  <div className="flex flex-col gap-3">
+                    <button 
+                      onClick={handleSelectKey}
+                      className="w-full py-3 bg-zimbabalooba-teal text-white rounded-xl text-[10px] font-bold uppercase tracking-widest transition-transform active:scale-95 shadow-lg shadow-zimbabalooba-teal/20"
+                    >
+                      Use Personal API Key (Bypass Quota)
+                    </button>
+                    <button 
+                      onClick={() => setState(prev => ({...prev, error: null}))} 
+                      className="px-6 py-2 text-gray-400 text-[9px] font-bold uppercase tracking-widest"
+                    >
+                      Try Again in 60s
+                    </button>
+                  </div>
+                  <p className="mt-4 text-[9px] text-gray-300">
+                    Get a key at <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" className="underline">ai.google.dev/billing</a>
+                  </p>
+                </div>
+              ) : state.error && (
+                <div className="bg-white p-10 rounded-[2rem] shadow-2xl max-w-md text-center border-t-4 border-rose-400">
+                  <div className="w-16 h-16 bg-rose-50 text-rose-400 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                    <i className="fa-solid fa-circle-exclamation text-2xl"></i>
+                  </div>
+                  <h4 className="text-gray-800 font-bold mb-2">Something went wrong</h4>
+                  <p className="text-gray-500 text-[11px] leading-relaxed mb-6">{state.error}</p>
+                  <button onClick={() => setState(prev => ({...prev, error: null}))} className="px-6 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-full text-[10px] font-bold uppercase tracking-widest transition-colors">Dismiss</button>
                 </div>
               )}
 
@@ -163,49 +254,34 @@ const App: React.FC = () => {
                     </div>
                   </div>
                   <h3 className="text-xl font-brand text-zimbabalooba-teal uppercase tracking-widest mb-2">
-                    {state.isEditing ? 'Refining Shot...' : 'Adjusting Focus...'}
+                    {state.isEditing ? 'Refining Shot...' : 'Developing Image...'}
                   </h3>
-                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Applying African Cotton Textures</p>
-                </div>
-              )}
-
-              {state.error && (
-                <div className="bg-white p-10 rounded-[2rem] shadow-2xl max-w-md text-center border-t-4 border-rose-400 animate-in shake duration-500">
-                  <div className="w-16 h-16 bg-rose-50 text-rose-400 rounded-2xl flex items-center justify-center mx-auto mb-6">
-                    <i className="fa-solid fa-circle-exclamation text-2xl"></i>
-                  </div>
-                  <h4 className="text-gray-800 font-bold mb-2">Something went wrong</h4>
-                  <p className="text-gray-500 text-[11px] leading-relaxed mb-6">{state.error}</p>
-                  <button onClick={reset} className="px-6 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 rounded-full text-[10px] font-bold uppercase tracking-widest transition-colors">Dismiss</button>
+                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+                    {hasPersonalKey ? 'Using Pro High-Res Model' : 'Applying Hand-Dyed Textures'}
+                  </p>
                 </div>
               )}
 
               {state.resultUrl && !state.isGenerating && !state.isEditing && (
-                <div className="w-full h-full flex flex-col items-center animate-in fade-in duration-1000">
+                <div className="w-full h-full flex flex-col items-center">
                   <div className="relative group max-h-[550px] shadow-[0_30px_60px_-15px_rgba(0,0,0,0.3)] rounded-2xl overflow-hidden bg-white ring-8 ring-white">
                     <img 
                       src={state.resultUrl} 
                       alt="Photoshoot result" 
                       onLoad={handleImageLoad} 
-                      onError={handleImageError} 
-                      className={`max-w-full max-h-[550px] object-contain transition-all duration-700 ${isImageLoading ? 'blur-xl opacity-0 scale-95' : 'blur-0 opacity-100 scale-100'}`} 
+                      className={`max-w-full max-h-[550px] object-contain transition-all duration-700 ${isImageLoading ? 'blur-xl opacity-0' : 'blur-0 opacity-100'}`} 
                     />
-                    {isImageLoading && (
-                      <div className="absolute inset-0 flex items-center justify-center bg-white/20 backdrop-blur-md">
-                        <i className="fa-solid fa-circle-notch fa-spin text-zimbabalooba-orange text-3xl"></i>
-                      </div>
-                    )}
                   </div>
                   
-                  <div className="w-full max-w-xl mt-10 animate-in slide-in-from-bottom-8 duration-700 delay-300">
-                    <div className="bg-white/90 backdrop-blur-md p-2 rounded-2xl shadow-2xl border border-zimbabalooba-teal/5 flex items-center gap-3 ring-1 ring-black/5">
+                  <div className="w-full max-w-xl mt-10">
+                    <div className="bg-white/90 backdrop-blur-md p-2 rounded-2xl shadow-2xl border border-zimbabalooba-teal/5 flex items-center gap-3">
                       <div className="pl-4 text-zimbabalooba-teal/40"><i className="fa-solid fa-wand-magic-sparkles"></i></div>
                       <input 
                         type="text" 
                         value={editPrompt}
                         onChange={(e) => setEditPrompt(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && handleEdit()}
-                        placeholder="Refine lighting, change background details, or swap accessories..."
+                        placeholder="Refine lighting, background or accessories..."
                         className="flex-1 bg-transparent border-none focus:ring-0 text-[11px] font-bold py-4 text-gray-700 placeholder:text-gray-300 uppercase tracking-tight"
                       />
                       <button 
@@ -213,7 +289,7 @@ const App: React.FC = () => {
                         disabled={!editPrompt.trim()}
                         className={`px-8 py-4 rounded-xl font-brand uppercase tracking-[0.2em] text-xs transition-all
                           ${editPrompt.trim() 
-                            ? 'bg-zimbabalooba-orange text-white shadow-lg shadow-zimbabalooba-orange/20 hover:scale-105 active:scale-95' 
+                            ? 'bg-zimbabalooba-orange text-white' 
                             : 'bg-gray-100 text-gray-300'}
                         `}
                       >
