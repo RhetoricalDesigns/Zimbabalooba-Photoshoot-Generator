@@ -5,14 +5,14 @@ import FittingControls from './components/FittingControls';
 import { generateModelFit, editGeneratedImage } from './services/geminiService';
 import { FittingConfig, GenerationState, StudioTier } from './types';
 
+// Fix: Modified Window interface to make aistudio optional, ensuring compatibility with other potential declarations
 declare global {
   interface AIStudio {
     hasSelectedApiKey: () => Promise<boolean>;
     openSelectKey: () => Promise<void>;
   }
   interface Window {
-    // Fixed: Removed readonly to match any existing/ambient declarations and avoid "identical modifiers" error
-    aistudio: AIStudio;
+    aistudio?: AIStudio;
   }
 }
 
@@ -40,12 +40,12 @@ const App: React.FC = () => {
   useEffect(() => {
     const checkKey = async () => {
       try {
-        if (window.aistudio) {
+        if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
           const hasKey = await window.aistudio.hasSelectedApiKey();
           setHasPersonalKey(hasKey);
         }
       } catch (e) {
-        console.warn("AIStudio bridge not yet available");
+        console.warn("AIStudio bridge not available in this environment");
       }
     };
     checkKey();
@@ -53,14 +53,20 @@ const App: React.FC = () => {
 
   const handleSelectKey = async () => {
     try {
-      if (window.aistudio) {
+      if (window.aistudio && typeof window.aistudio.openSelectKey === 'function') {
         await window.aistudio.openSelectKey();
+        // Assume success to avoid race conditions as per instructions
         setHasPersonalKey(true);
         setActiveTier('pro');
         setState(prev => ({ ...prev, error: null }));
+      } else {
+        const msg = "API Key selection is only available within the AI Studio environment.";
+        console.error(msg);
+        setState(prev => ({ ...prev, error: msg }));
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error opening key selection:", err);
+      setState(prev => ({ ...prev, error: "Failed to open key selection dialog: " + err.message }));
     }
   };
 
@@ -81,10 +87,16 @@ const App: React.FC = () => {
       setState({ isGenerating: false, isEditing: false, error: null, resultUrl: result });
       setIsImageLoading(true);
     } catch (err: any) {
-      if (err.message?.includes("Requested entity was not found.")) {
+      console.error("Generate Error:", err);
+      if (err.message?.includes("Requested entity was not found.") || err.message?.includes("API Key must be set")) {
         setHasPersonalKey(false);
         setActiveTier('free');
-        setState({ isGenerating: false, isEditing: false, error: "API Key expired. Switched to Free mode.", resultUrl: null });
+        setState({ 
+          isGenerating: false, 
+          isEditing: false, 
+          error: "Please select your personal API key to use Pro mode.", 
+          resultUrl: null 
+        });
       } else {
         setState({ isGenerating: false, isEditing: false, error: err.message, resultUrl: null });
       }
@@ -147,7 +159,7 @@ const App: React.FC = () => {
                 rel="noreferrer"
                 className="text-[8px] text-gray-400 mt-1 hover:text-zimbabalooba-orange transition-colors"
               >
-                Requires Billing Configuration
+                Requires Personal API Key
               </a>
             )}
           </div>
@@ -180,7 +192,7 @@ const App: React.FC = () => {
           >
             {state.isGenerating ? (
               <span className="flex items-center justify-center">
-                <i className="fa-solid fa-spinner fa-spin mr-3"></i> {activeTier === 'pro' ? 'Rendering HD...' : 'Developing...'}
+                <i className="fa-solid fa-spinner fa-spin mr-3"></i> Developing...
               </span>
             ) : `Create ${activeTier === 'pro' ? 'HD' : ''} Photoshoot`}
           </button>
@@ -197,35 +209,22 @@ const App: React.FC = () => {
               </div>
               {state.resultUrl && (
                 <div className="flex space-x-3">
-                  <button onClick={() => { if(state.resultUrl) { const l = document.createElement('a'); l.href=state.resultUrl; l.download='zimbabalooba.png'; l.click(); }}} className="w-10 h-10 flex items-center justify-center bg-white border border-gray-100 hover:border-zimbabalooba-orange rounded-full text-zimbabalooba-teal shadow-sm transition-all hover:scale-105"><i className="fa-solid fa-download"></i></button>
-                  <button onClick={() => setSelectedImage(null)} className="w-10 h-10 flex items-center justify-center bg-white border border-gray-100 hover:border-rose-400 rounded-full text-rose-400 shadow-sm transition-all hover:scale-105"><i className="fa-solid fa-rotate-left"></i></button>
+                  <button onClick={() => { if(state.resultUrl) { const l = document.createElement('a'); l.href=state.resultUrl; l.download='zimbabalooba.png'; l.click(); }}} className="w-10 h-10 flex items-center justify-center bg-white border border-gray-100 hover:border-zimbabalooba-orange rounded-full text-zimbabalooba-teal shadow-sm transition-all hover:scale-105" title="Download Image"><i className="fa-solid fa-download"></i></button>
+                  <button onClick={() => { setSelectedImage(null); setState(p => ({...p, resultUrl: null})); }} className="w-10 h-10 flex items-center justify-center bg-white border border-gray-100 hover:border-rose-400 rounded-full text-rose-400 shadow-sm transition-all hover:scale-105" title="Reset"><i className="fa-solid fa-rotate-left"></i></button>
                 </div>
               )}
             </div>
 
             <div className="flex-1 relative flex flex-col items-center justify-center p-4 md:p-8 overflow-hidden">
-              {state.error === "QUOTA_EXCEEDED" ? (
-                <div className="bg-white p-10 rounded-[2rem] shadow-2xl max-w-md text-center border-t-4 border-zimbabalooba-orange z-30">
-                  <div className="w-16 h-16 bg-orange-50 text-zimbabalooba-orange rounded-2xl flex items-center justify-center mx-auto mb-6">
-                    <i className="fa-solid fa-hourglass-half text-2xl animate-pulse"></i>
-                  </div>
-                  <h4 className="text-gray-800 font-bold mb-2">Tier Quota Exhausted</h4>
-                  <p className="text-gray-500 text-[11px] leading-relaxed mb-6">
-                    The {activeTier} tier limit is reached. Switch to {activeTier === 'free' ? 'Pro Mode' : 'Free Mode'} or wait a moment.
-                  </p>
-                  <button 
-                    onClick={() => toggleTier(activeTier === 'free' ? 'pro' : 'free')}
-                    className="w-full py-3 bg-zimbabalooba-teal text-white rounded-xl text-[10px] font-bold uppercase tracking-widest"
-                  >
-                    Switch to {activeTier === 'free' ? 'Pro' : 'Free'} Tier
-                  </button>
-                </div>
-              ) : state.error && (
-                <div className="bg-white p-10 rounded-[2rem] shadow-2xl max-w-md text-center border-t-4 border-rose-400 z-30">
+              {state.error && (
+                <div className="bg-white p-10 rounded-[2rem] shadow-2xl max-w-md text-center border-t-4 border-rose-400 z-30 animate-shake">
                   <div className="w-16 h-16 bg-rose-50 text-rose-400 rounded-2xl flex items-center justify-center mx-auto mb-6"><i className="fa-solid fa-triangle-exclamation text-2xl"></i></div>
-                  <h4 className="text-gray-800 font-bold mb-2">Generation Failed</h4>
-                  <p className="text-gray-500 text-[11px] mb-6">{state.error}</p>
-                  <button onClick={() => setState(p => ({...p, error: null}))} className="px-6 py-2 bg-gray-100 text-gray-600 rounded-full text-[10px] font-bold uppercase tracking-widest">Dismiss</button>
+                  <h4 className="text-gray-800 font-bold mb-2">Notice</h4>
+                  <p className="text-gray-500 text-[11px] mb-6 leading-relaxed">{state.error}</p>
+                  <div className="flex flex-col gap-2">
+                    <button onClick={handleSelectKey} className="w-full py-3 bg-zimbabalooba-teal text-white rounded-xl text-[10px] font-bold uppercase tracking-widest shadow-md">Select API Key</button>
+                    <button onClick={() => setState(p => ({...p, error: null}))} className="px-6 py-2 text-gray-400 hover:text-gray-600 text-[10px] font-bold uppercase tracking-widest">Dismiss</button>
+                  </div>
                 </div>
               )}
 
@@ -242,7 +241,7 @@ const App: React.FC = () => {
                     {state.isEditing ? 'Refining Shot...' : 'Developing Image...'}
                   </h3>
                   <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
-                    {activeTier === 'pro' ? 'Gemini 3 Pro Engine • 1K High-Res' : 'Gemini 2.5 Flash Engine • Speed Mode'}
+                    {activeTier === 'pro' ? 'Gemini 3 Pro Engine • 1K High-Res' : 'Gemini 2.5 Flash Engine • Standard Mode'}
                   </p>
                 </div>
               )}
