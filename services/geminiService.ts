@@ -21,7 +21,7 @@ export const generateModelFit = async (
     customInstructions?: string
   }
 ): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
   const { mimeType, data } = getBase64Parts(base64Image);
 
   const prompt = MODEL_SHOT_PROMPT(config);
@@ -42,21 +42,22 @@ export const generateModelFit = async (
       }
     });
 
-    // Safer access to candidate parts to satisfy TypeScript
-    const candidates = response.candidates;
-    if (candidates && candidates.length > 0) {
-      const parts = candidates[0].content?.parts;
-      const imagePart = parts?.find(p => p.inlineData);
+    const candidate = response.candidates?.[0];
+    if (candidate?.content?.parts) {
+      const imagePart = candidate.content.parts.find(p => p.inlineData);
       
-      if (imagePart && imagePart.inlineData) {
+      if (imagePart?.inlineData?.data) {
         return `data:image/png;base64,${imagePart.inlineData.data}`;
       }
     }
     
-    throw new Error("The AI model finished processing but didn't provide an image result.");
+    throw new Error("The AI model finished processing but didn't provide an image result. It might be due to safety filters or an internal error.");
   } catch (error: any) {
     console.error("Gemini API Error:", error);
-    throw new Error(error.message || "Generation failed. Please check your API key and internet connection.");
+    if (error.message?.includes('RESOURCE_EXHAUSTED')) {
+      throw new Error("API Quota exceeded. Please try again in a few minutes.");
+    }
+    throw new Error(error.message || "Generation failed. Please check your API key.");
   }
 };
 
@@ -64,7 +65,7 @@ export const editGeneratedImage = async (
   base64Image: string,
   editPrompt: string
 ): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
   const { mimeType, data } = getBase64Parts(base64Image);
 
   const instruction = `
@@ -84,12 +85,11 @@ export const editGeneratedImage = async (
       }
     });
 
-    const candidates = response.candidates;
-    if (candidates && candidates.length > 0) {
-      const parts = candidates[0].content?.parts;
-      const imagePart = parts?.find(p => p.inlineData);
+    const candidate = response.candidates?.[0];
+    if (candidate?.content?.parts) {
+      const imagePart = candidate.content.parts.find(p => p.inlineData);
       
-      if (imagePart && imagePart.inlineData) {
+      if (imagePart?.inlineData?.data) {
         return `data:image/png;base64,${imagePart.inlineData.data}`;
       }
     }
@@ -97,6 +97,9 @@ export const editGeneratedImage = async (
     throw new Error("The AI model finished processing but didn't provide an image result.");
   } catch (error: any) {
     console.error("Gemini Edit Error:", error);
+    if (error.message?.includes('RESOURCE_EXHAUSTED')) {
+      throw new Error("API Quota exceeded. Please try again in a few minutes.");
+    }
     throw new Error(error.message || "Editing failed.");
   }
 };
