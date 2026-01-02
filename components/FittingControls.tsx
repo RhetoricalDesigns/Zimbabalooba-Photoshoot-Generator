@@ -25,8 +25,35 @@ const FittingControls: React.FC<FittingControlsProps> = ({ config, onChange }) =
           value={config.customInstructions}
           onChange={(e) => updateConfig('customInstructions', e.target.value)}
           placeholder="e.g. Add a yellow bucket hat, or change shoes to leather sandals..."
-          className="w-full h-24 p-4 text-xs bg-zimbabalooba-lightBg/20 border-2 border-gray-100 rounded-2xl focus:border-zimbabalooba-orange focus:ring-0 transition-all resize-none font-medium placeholder:text-gray-300"
+          className="w-full h-20 p-4 text-xs bg-zimbabalooba-lightBg/20 border-2 border-gray-100 rounded-2xl focus:border-zimbabalooba-orange focus:ring-0 transition-all resize-none font-medium placeholder:text-gray-300"
         />
+      </div>
+
+      {/* Pose Selection - Added missing section */}
+      <div>
+        <label className="block text-xs font-bold text-zimbabalooba-teal uppercase tracking-wider mb-2">Model Pose</label>
+        <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
+          {POSES.map((pose) => (
+            <button
+              key={pose.id}
+              onClick={() => updateConfig('pose', pose.label)}
+              className={`flex items-center p-2 rounded-xl border-2 transition-all text-left
+                ${config.pose === pose.label 
+                  ? 'border-zimbabalooba-orange bg-zimbabalooba-orange/5' 
+                  : 'border-gray-50 bg-white hover:border-gray-200'}
+              `}
+            >
+              <div className={`w-7 h-7 rounded-lg flex items-center justify-center mr-2.5 
+                ${config.pose === pose.label ? 'bg-zimbabalooba-orange text-white' : 'bg-gray-50 text-gray-400'}`}
+              >
+                <i className={`fa-solid ${pose.icon} text-[10px]`}></i>
+              </div>
+              <span className={`text-[10px] font-bold ${config.pose === pose.label ? 'text-zimbabalooba-orange' : 'text-gray-500'}`}>
+                {pose.label}
+              </span>
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-6">
@@ -81,7 +108,7 @@ const FittingControls: React.FC<FittingControlsProps> = ({ config, onChange }) =
               onClick={() => updateConfig('modelRace', race.label)}
               className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border-2 transition-all
                 ${config.modelRace === race.label 
-                  ? 'border-zimbabalooba-orange bg-white text-zimbabalooba-orange' 
+                  ? 'border-zimbabalooba-orange bg-white text-zimbabalooba-orange shadow-sm border-zimbabalooba-orange/30' 
                   : 'border-gray-50 bg-white text-gray-400 hover:border-gray-100'}
               `}
             >

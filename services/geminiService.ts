@@ -21,6 +21,7 @@ export const generateModelFit = async (
     customInstructions?: string
   }
 ): Promise<string> => {
+  // Always create a new instance to pick up the latest API key from the environment
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
   const { mimeType, data } = getBase64Parts(base64Image);
 
@@ -48,8 +49,8 @@ export const generateModelFit = async (
     }
     throw new Error("The AI model finished processing but didn't provide an image result.");
   } catch (error: any) {
-    if (error.message?.includes("PERMISSION_ISSUE")) throw error;
-    throw new Error(error.message || "Generation failed.");
+    console.error("Gemini API Error:", error);
+    throw new Error(error.message || "Generation failed. Please check your API key and internet connection.");
   }
 };
 
@@ -83,6 +84,7 @@ export const editGeneratedImage = async (
     }
     throw new Error("The AI model finished processing but didn't provide an image result.");
   } catch (error: any) {
+    console.error("Gemini Edit Error:", error);
     throw new Error(error.message || "Editing failed.");
   }
 };
